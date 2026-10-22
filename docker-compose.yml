@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/php${PHP_VERSION:-7.1}/Dockerfile
+      args:
+        DB_DRIVER: ${DB_DRIVER:-pgsql}
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:80"
+    volumes:
+      - ${APP_PATH:-./www}:/var/www/html
+      - ./config/php.ini:/usr/local/etc/php/conf.d/99-legacy.ini:ro
+    restart: unless-stopped

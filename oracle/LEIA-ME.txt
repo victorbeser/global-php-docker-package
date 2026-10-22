@@ -1,0 +1,9 @@
+Para DB_DRIVER=oracle ou both, esta pasta precisa conter:
+- instantclient-basic-linux.x64-12.1.0.2.0.zip
+- instantclient-sdk-linux.x64-12.1.0.2.0.zip
+
+No pacote COMPLETO, os arquivos acima foram preservados do ZIP original.
+No pacote LEVE, copie-os do ZIP original antes de executar o build Oracle.
+
+O Instant Client e propriedade da Oracle. Verifique os termos de uso e
+redistribuicao antes de publicar estas bibliotecas em repositorios.

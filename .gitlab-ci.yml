@@ -1,0 +1,234 @@
+
+# ==========================================
+# DOCKER LEGACY PACK - GITLAB CI/CD
+# ==========================================
+#
+# staging -> Homologacao
+# master  -> Producao
+#
+# Runner: Shell
+#
+# Configuracoes compartilhadas entre
+# todos os ambientes.
+#
+# Altere somente o bloco CONFIGURACOES.
+# ==========================================
+
+stages:
+  - deploy
+
+# ==========================================
+# CONFIGURACOES GERAIS
+# ==========================================
+
+variables:
+
+  # Diretorio de deploy no servidor
+  DEPLOY_PATH: "/var/www/html/legado/[SISTEMA]"
+
+  # Identificacao do projeto Docker
+  COMPOSE_PROJECT_NAME: "legacy-php"
+
+  # PHP: 5.3 ou 7.1
+  PHP_VERSION: "5.3"
+
+  # Banco: pgsql, oracle, both ou none
+  DB_DRIVER: "pgsql"
+
+  # Porta HTTP
+  APP_PORT: "8080"
+
+  # Endereco de escuta
+  BIND_ADDRESS: "127.0.0.1"
+
+  # Diretorio do codigo PHP
+  APP_PATH: "./www"
+
+# ==========================================
+# TEMPLATE COMPARTILHADO
+# ==========================================
+
+.deploy_template:
+  stage: deploy
+
+  script:
+    - |
+      set -eu
+
+      echo "========================================"
+      echo " DOCKER LEGACY PACK"
+      echo " Ambiente: $CI_ENVIRONMENT_NAME"
+      echo " Branch: $CI_COMMIT_BRANCH"
+      echo " PHP: $PHP_VERSION"
+      echo " Banco: $DB_DRIVER"
+      echo "========================================"
+
+      # ====================================
+      # VALIDACOES
+      # ====================================
+
+      echo "=== VALIDANDO CONFIGURACOES ==="
+
+      case "$DEPLOY_PATH" in
+        /*) ;;
+        *)
+          echo "ERRO: DEPLOY_PATH deve ser absoluto."
+          exit 1
+          ;;
+      esac
+
+      DEPLOY_PATH="${DEPLOY_PATH%/}"
+
+      case "$DEPLOY_PATH" in
+        ""|/|/home|/var|/var/www|/var/www/html)
+          echo "ERRO: diretorio de deploy invalido."
+          exit 1
+          ;;
+      esac
+
+      case "$PHP_VERSION" in
+        5.3|7.1) ;;
+        *)
+          echo "ERRO: versao PHP invalida."
+          exit 1
+          ;;
+      esac
+
+      case "$DB_DRIVER" in
+        pgsql|oracle|both|none) ;;
+        *)
+          echo "ERRO: driver de banco invalido."
+          exit 1
+          ;;
+      esac
+
+      case "$APP_PORT" in
+        *[!0-9]*|"")
+          echo "ERRO: porta invalida."
+          exit 1
+          ;;
+      esac
+
+      case "$APP_PATH" in
+        ""|/|../*|*/../*)
+          echo "ERRO: APP_PATH invalido."
+          exit 1
+          ;;
+      esac
+
+      command -v docker
+      command -v rsync
+
+      docker compose version
+
+      # ====================================
+      # PREPARAR DIRETORIO
+      # ====================================
+
+      echo "=== PREPARANDO DESTINO ==="
+
+      mkdir -p "$DEPLOY_PATH"
+
+      # ====================================
+      # SINCRONIZAR ARQUIVOS
+      # ====================================
+
+      echo "=== SINCRONIZANDO PROJETO ==="
+
+      rsync -av --no-owner --no-group \
+        --exclude='.git/' \
+        --exclude='.gitlab-ci.yml' \
+        --exclude='.env' \
+        --exclude='env.ini' \
+        ./ "$DEPLOY_PATH/"
+
+      # ====================================
+      # GERAR .ENV AUTOMATICAMENTE
+      # ====================================
+
+      echo "=== CONFIGURANDO DOCKER ==="
+
+      umask 077
+
+      ENV_TEMP=$(mktemp "$DEPLOY_PATH/.env.tmp.XXXXXX")
+
+      printf '%s\n' \
+        "COMPOSE_PROJECT_NAME=$COMPOSE_PROJECT_NAME" \
+        "PHP_VERSION=$PHP_VERSION" \
+        "DB_DRIVER=$DB_DRIVER" \
+        "APP_PORT=$APP_PORT" \
+        "BIND_ADDRESS=$BIND_ADDRESS" \
+        "APP_PATH=$APP_PATH" \
+        > "$ENV_TEMP"
+
+      chmod 600 "$ENV_TEMP"
+
+      mv -f "$ENV_TEMP" "$DEPLOY_PATH/.env"
+
+      echo "Arquivo .env configurado."
+
+      # ====================================
+      # BUILD E EXECUCAO DOCKER
+      # ====================================
+
+      cd "$DEPLOY_PATH"
+
+      echo "=== VALIDANDO COMPOSE ==="
+
+      docker compose config --quiet
+
+      echo "=== INICIANDO CONTAINERS ==="
+
+      docker compose up -d \
+        --build \
+        --remove-orphans
+
+      # ====================================
+      # VALIDACAO FINAL
+      # ====================================
+
+      echo "=== STATUS DOS CONTAINERS ==="
+
+      docker compose ps
+
+      echo "========================================"
+      echo " DEPLOY FINALIZADO"
+      echo " Ambiente: $CI_ENVIRONMENT_NAME"
+      echo " Destino: $DEPLOY_PATH"
+      echo "========================================"
+
+# ==========================================
+# HOMOLOGACAO - STAGING
+# ==========================================
+
+deploy:staging:
+  extends: .deploy_template
+
+  environment:
+    name: staging
+
+  resource_group: legacy-staging
+
+  tags:
+    - hom
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "staging"'
+
+# ==========================================
+# PRODUCAO - MASTER
+# ==========================================
+
+deploy:production:
+  extends: .deploy_template
+
+  environment:
+    name: production
+
+  resource_group: legacy-production
+
+  tags:
+    - prod
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master"'

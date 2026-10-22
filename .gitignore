@@ -1,0 +1,7 @@
+.env
+*.log
+__pycache__/
+.DS_Store
+oracle/*.zip
+www/.env
+www/env.ini
